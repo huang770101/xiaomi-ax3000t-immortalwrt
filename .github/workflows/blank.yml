@@ -22,7 +22,7 @@ jobs:
           cd openwrt
           git checkout openwrt-25.12
 
-      - name: 配置 feeds 源
+      - name: 写入feeds.conf
         run: |
           cd openwrt
           cat > feeds.conf <<'EOF'
@@ -35,7 +35,7 @@ src-git passwall_pkg https://github.com/xiaorouji/openwrt-passwall-packages.git
 src-git mosdns https://github.com/sbwml/luci-app-mosdns.git
 EOF
 
-      - name: 自定义默认配置（IP、密码、时区、开机默认BBR）
+      - name: 自定义默认配置（IP、密码、时区、BBR）
         run: |
           cd openwrt
           mkdir -p files/etc/uci-defaults
@@ -47,7 +47,6 @@ echo "root:password" | chpasswd
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
-# 默认BBR
 echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
 echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
 exit 0
@@ -78,9 +77,6 @@ CONFIG_PACKAGE_ipv6helper=y
 CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-mosdns=y
 CONFIG_PACKAGE_frpc=y
-
-# 内核BBR
-CONFIG_KERNEL_BBR=y
 
 # 关闭无用包，节省空间
 CONFIG_PACKAGE_wireguard-tools=n

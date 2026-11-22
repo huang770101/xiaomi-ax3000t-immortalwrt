@@ -1,0 +1,112 @@
+name: Build ImmortalWrt 25.12 AX3000T ubootmod-BBR(方案B)
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses-dev libssl-dev libelf-dev gcc g++ make git bison flex patch bc rsync unzip wget
+
+      - name: 拉取 ImmortalWrt 25.12 源码
+        run: |
+          git clone https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt
+          git checkout openwrt-25.12
+
+      - name: 配置 feeds 源
+        run: |
+          cd openwrt
+          cat > feeds.conf <<'EOF'
+src-git base https://github.com/immortalwrt/immortalwrt-packages.git;openwrt-25.12
+src-git luci https://github.com/immortalwrt/luci.git;openwrt-25.12
+src-git routing https://github.com/immortalwrt/routing.git;openwrt-25.12
+src-git telephony https://github.com/immortalwrt/telephony.git;openwrt-25.12
+src-git passwall https://github.com/xiaorouji/openwrt-passwall.git
+src-git passwall_pkg https://github.com/xiaorouji/openwrt-passwall-packages.git
+src-git mosdns https://github.com/sbwml/luci-app-mosdns.git
+EOF
+
+      - name: 自定义默认配置（IP、密码、时区、开机默认BBR）
+        run: |
+          cd openwrt
+          mkdir -p files/etc/uci-defaults
+          cat > files/etc/uci-defaults/99-custom <<'EOF'
+#!/bin/sh
+uci set network.lan.ipaddr='192.168.31.1'
+uci commit network
+echo "root:password" | chpasswd
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+# 默认BBR
+echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_notsent_lowat=16384" >> /etc/sysctl.conf
+exit 0
+EOF
+          chmod +x files/etc/uci-defaults/99-custom
+
+      - name: 写入 .config
+        run: |
+          cd openwrt
+          cat > .config <<'EOF'
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_xiaomi_mi-router-ax3000t=y
+CONFIG_TARGET_MEDIATEK_FILOGIC_XIAOMI_MI_ROUTER_AX3000T_UBOOTMOD=y
+
+# 基础组件
+CONFIG_LIBCURL=y
+CONFIG_OPENSSL=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_socat=y
+CONFIG_PACKAGE_ttyd=y
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+
+# 目标插件
+CONFIG_PACKAGE_luci-app-passwall=y
+CONFIG_PACKAGE_sing-box=y
+CONFIG_PACKAGE_ipv6helper=y
+CONFIG_PACKAGE_luci-app-autoreboot=y
+CONFIG_PACKAGE_luci-app-mosdns=y
+CONFIG_PACKAGE_frpc=y
+
+# 内核BBR
+CONFIG_KERNEL_BBR=y
+
+# 关闭无用包，节省空间
+CONFIG_PACKAGE_wireguard-tools=n
+CONFIG_PACKAGE_ddns-scripts=n
+CONFIG_PACKAGE_luci-app-homeproxy=n
+CONFIG_PACKAGE_luci-app-turboacc=n
+EOF
+
+      - name: 更新 feeds && 安装插件
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 预下载源码包
+        run: |
+          cd openwrt
+          make -j$(nproc) download
+
+      - name: 编译固件
+        run: |
+          cd openwrt
+          make -j$(nproc) V=s
+
+      - name: 上传固件产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt25.12_AX3000T_ubootmod_BBR方案B
+          path: openwrt/bin/targets/mediatek/filogic/*.ubi
